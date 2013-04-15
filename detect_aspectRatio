@@ -1,0 +1,236 @@
+#!/usr/bin/python
+
+import os, sys, subprocess, shlex, re, fnmatch
+from subprocess import call 
+import shutil
+import fnmatch
+import time 
+import datetime
+from datetime import datetime as dt 
+import smtplib
+from email.mime.text import MIMEText
+from subprocess import Popen, PIPE
+
+# GLOBAL VARIABLES - DIR LOCATIONS 
+HD_dir='/mnt/VoigtKampff/Episode/Episode_InBox/PY_BOT/HD' # Directory where HD files go for encoding 
+SD16x9_dir='/mnt/VoigtKampff/Episode/Episode_InBox/PY_BOT/16x9' # Directory where 16x9 files go for encoding 
+SD4x3_dir='/mnt/VoigtKampff/Episode/Episode_InBox/PY_BOT/4x3' # Directory where 4x3 files go for encoding
+Error_dir='/mnt/VoigtKampff/Episode/Episode_InBox/PY_BOT/ERRORS' # Directory where files with errors go
+videoDrop_dir='/mnt/isilonfile/Movies/Video/_ARC-IDs_Needed/CREATE_ID_DROPBOX' # the video drop directory #Isilon\international\Movies\Video\_ARC-IDs_Needed\CREATE_ID_DROPBOX#
+ffprobeDir='/home/idmoadmin/Desktop/ffprobe_instance/ffprobe_dir' # Directory where the ffprobe will scan the video files
+recursive_encode_dir='/mnt/VoigtKampff/Episode/Episode_InBox/PY_BOT' # top level directory for all asource video files. 
+
+
+# TEST DIRS
+#HD_dir='/Users/mathiesj/Desktop/src_1/PY_BOT/HD' # Directory where HD files go for encoding 
+#SD16x9_dir='/Users/mathiesj/Desktop/src_1/PY_BOT/16x9' # Directory where 16x9 files go for encoding 
+#SD4x3_dir='/Users/mathiesj/Desktop/src_1/PY_BOT/4x3' # Directory where 4x3 files go for encoding
+#Error_dir='/Users/mathiesj/Desktop/src_1/PY_BOT/ERRORS' # Directory where files with errors go
+#videoDrop_dir="/Users/mathiesj/Desktop/src_1/video_drop" # the video drop directory #Isilon\international\Movies\Video\_ARC-IDs_Needed\CREATE_ID_DROPBOX#
+#ffprobeDir="/Users/mathiesj/Desktop/src_1/ffprobe_dir" # Directory where the ffprobe will scan the video files
+#recursive_encode_dir="/Users/mathiesj/Desktop/src_1/PY_BOT/" # top level directory for all asource video files. 
+
+
+
+# GLOBAL VARIABLES - VALUES 
+HD_WIDTH = 959 # The minimum pixel width of a HD video
+SD_HEIGHT = 450 # The minimum pixel height of a 4x3 video
+MIN_WIDTH = 638 # the minimum pixel width of any video
+MIN_HEIGHT = 355 # The minimum pixel height of any video
+HD_HEIGHT = 719 # The minimum pixel height of a HD video
+
+
+
+# GLOBAL FUNCTIONS - FFPROBE 
+def probe_file():
+  fpath = os.path.join(ffprobeDir, file)
+	try:
+		command = ['ffprobe', '-show_format', '-show_streams', '-pretty', '-loglevel', 'quiet', fpath]
+		p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		print file
+		out, err = p.communicate()
+		print "===============================OUTPUT START: %s ===============================" % file
+		print out
+		for line in out.split('\n'):
+			line = line.strip()
+			if line.startswith('width='):
+				s = line
+				p_width = s.split('width=', 1)
+				int_p_width = int(p_width[1])
+				print "Video pixel width is: %s" % p_width[1]
+				print "as INT: %s" % int_p_width
+			elif line.startswith('height='):
+				s = line
+				p_height = s.split('height=', 1)
+				int_p_height = int(p_height[1])
+				print "Video pixel height is: %s" % p_height[1]
+				print "as INT: %s" % int_p_height
+				if int_p_width > HD_WIDTH:
+					print "file: %s is HD" % file
+					shutil.move(fpath, HD_dir)
+				elif int_p_width < HD_WIDTH and int_p_height > SD_HEIGHT and int_p_width > MIN_WIDTH:
+					print "file: %s is 4x3" % file
+					shutil.move(fpath, SD4x3_dir)
+				elif int_p_width < HD_WIDTH and int_p_height < SD_HEIGHT and int_p_width > MIN_WIDTH:
+					print "file: %s is 16x9 SD" % file
+					shutil.move(fpath, SD16x9_dir)
+				elif p_width < MIN_WIDTH or int_p_height < MIN_HEIGHT:
+					print "file width: %s height: %s File is too small and will be moved to Errors" % (int_p_width, int_p_height) 
+					shutil.move(fpath, Error_dir)
+					sendMail_small()
+				else:
+					print "file: %s has errors and will be manually inspected" % file
+					shutil.move(fpath, Error_dir)
+					sendMail()
+
+
+		print "===============================OUTPUT FINISH: %s ===============================" % file
+		if err: 
+			print "===============================ERROR: %s ===============================" % file
+			print err
+	except subprocess.CalledProcessError, e:
+		print "Subprocess Error with file: %s" % file
+		sendMail()
+	return 
+
+
+# GLOBAL FUNCTION - DELETE ERROR FILES:
+def delete_error_files():
+	for root, dirs, files in os.walk(Error_dir):
+		for file in files:
+			print "file: %s" % file
+			if file.endswith(('.mov', '.mpg', '.mp4', '.wmv', '.mxf')):
+				curpath = os.path.join(root, file)
+				print "curpath file: %s" % curpath
+				file_modified = datetime.datetime.fromtimestamp(os.path.getmtime(curpath)) # get date stamp from video files 
+				print "File Modification Time: %s Current Time %s" % (file_modified, datetime.datetime.now())
+				if datetime.datetime.now() - file_modified > datetime.timedelta(hours=96): # check if video files are older than 96 hours
+					print "This file %s is older than 96 hours and will be deleted" % file
+					fpath = os.path.join(root, file)
+					print "fpath is: %s and will be deleted" % fpath
+					if os.path.isfile(fpath):
+						os.remove(fpath) # remove files older than 96 hours 
+				elif datetime.datetime.now() - file_modified < datetime.timedelta(hours=96): # if the video files are newer than 96 hours leave them there 
+					print "This file is newer than 96 hours and will not be deleted yet"
+			else:
+				if not file.endswith(('.mov', '.mpg', '.mp4', '.wmv', '.mxf')): # if the file does not have the right file extension 
+					delete_file()
+					print "sleeping for 5 minutes - bye world"
+					time.sleep(300)
+	return 
+
+# GLOBAL FUNCTION - DELETE FILES OLDER THEN IN EPISODE INBOX
+def delete_oldSource():
+	for root, dirs, files in os.walk(recursive_encode_dir):
+		for file in files:
+			print "file: %s" % file
+			if file.endswith(('.mov', '.mpg', '.mp4', '.wmv', '.mxf')):
+				curpath = os.path.join(root, file)
+				print "curpath file: %s" % curpath
+				file_modified = datetime.datetime.fromtimestamp(os.path.getmtime(curpath)) # get date stamp from video files 
+				print "File Modification Time: %s Current Time %s" % (file_modified, datetime.datetime.now())
+				if datetime.datetime.now() - file_modified > datetime.timedelta(hours=96): # check if video files are older than 96 hours
+					print "This file %s is older than 96 hours and will be deleted" % file
+					fpath = os.path.join(root, file)
+					print "fpath is: %s and will be deleted" % fpath
+					if os.path.isfile(fpath):
+						os.remove(fpath) # remove files older than 96 hours 
+				elif datetime.datetime.now() - file_modified < datetime.timedelta(hours=96): # if the video files are newer than 96 hours leave them there 
+					print "This file is newer than 96 hours and will not be deleted yet"
+			else:
+				if not file.endswith(('.mov', '.mpg', '.mp4', '.wmv', '.mxf')): # if the file does not have the right file extension
+					print "This is not a valid video file: %s and will be deleted immediately" % file
+					fpath = os.path.join(root, file)
+					if os.path.isfile(fpath):
+						os.remove(fpath)
+					elif not os.path.isfile(fpath):
+						print "%s is not a real file"   
+					print "sleeping for 5 minutes - bye world"
+					time.sleep(300)
+	return 
+
+
+
+# GLOBAL FUNCTION - DELETE FILES 
+def delete_file():
+	print "These are not video files: %s and will be deleted immediately" % file
+	fpath = os.path.join(root, file)
+	print "fpath is: %s and will be deleted" % fpath
+	if os.path.isfile(fpath):
+		os.remove(fpath) # delete files with the wrong extension
+	elif not os.path.isfile(fpath):
+		print "%s is not a real file" % fpath 
+	return 
+
+
+# GLOBAL FUNCTION - VIDEO FILE ERROR: HEADER ERROR EMAIL 
+def sendMail():
+	msg = MIMEText("This file has width/height errors: %s" % file)
+	msg["From"] = "xxxxxx.xxxxxx@xxxx.com"
+	msg["To"] = "iouma@jira.xxxx.com"
+	msg["Subject"] = "Video file: %s Failed ffprobe analysis - perform manual QC" % file 
+	p = Popen(["/usr/sbin/sendmail", "-t"], stdin=PIPE)
+	p.communicate(msg.as_string())
+
+# GLOBAL FUNCTION - VIDEO FILE ERROR: WIDTH TOO SMALL EMAIL
+def sendMail_small():
+	msg = MIMEText("File Width: %s - too small" % file)
+	msg["From"] = "xxxxxx.xxxxxx@xxxx.com"
+	msg["To"] = "iouma@jira.xxxx.com"
+	msg["Subject"] = "Video file: %s Failed ffprobe analysis: width: [%s] height: [%s]" % (file, p_width[1], p_height[1])  
+	p = Popen(["/usr/sbin/sendmail", "-t"], stdin=PIPE)
+	p.communicate(msg.as_string())
+
+
+
+
+# SCRIPT
+while True:
+	time.sleep(45)
+	if dt.now().minute in range(6, 59): 
+		print "Starting Video Drop Location Scan - the time is: %s past the hour" % dt.now().minute
+		matches = []
+		for root, dirs, files in os.walk(videoDrop_dir):
+			for file in files:
+				print "File: %s" % file
+				if file.startswith('.'):
+					print "This file: %s is not valid" % file
+				elif file.endswith(('.mov', '.mpg', '.mp4', '.wmv', '.mxf')):
+					matches.append(os.path.join(root, file)) # 
+					print (os.path.join(root, file))
+					try: 
+						shutil.move(os.path.join(root, file), os.path.join(ffprobeDir, file)) # move all video files that match to ffprobe directory
+					except IOError:
+						print "file: %s not ready yet" % file 
+					print "finished moving file - waiting 10 seconds"
+					time.sleep(10)
+					print "calling ffprobe for: %s" % file 
+					probe_file()
+					print "finished ffprobe - wating 10 seconds"
+					time.sleep(10)
+				elif not file.endswith(('.mov', '.mpg', '.mp4', '.wmv', '.mxf')):
+					print "This file: %s is not a valid video file" % file
+				else:
+					print "No files found in the Video Drop: %s" % videoDrop_dir
+					
+	elif dt.now().minute in range(0, 6) and dt.now().hour in range(21, 23):
+		for root, dirs, files in os.walk(ffprobeDir):
+			if file.startswith('.'):
+				print "This file: %s is not valid" % file
+			elif file.endswith(('.mov', '.mpg', '.mp4', '.wmv', '.mxf')):
+				print "Starting independent FFPROBE process - the time is: %s past the hour" % dt.now().minute
+				probe_file() # Call Global Function to ffprobe file 
+				print "finished independent ffprobe - waiting 2 seconds"
+				time.sleep(2)
+			elif not file.endswith(('.mov', '.mpg', '.mp4', '.wmv', '.mxf')):
+				print "deleting: %s - it is not a valid video file" % file 
+				delete_file() # Call Global Function to delete file 
+		
+	else:
+		print "Starting Delete Process - the time is: %s" % dt.now()
+		delete_error_files()
+		delete_oldSource()
+		print "Delete Process is finished - the time is: %s" % dt.now()
+		print "Server taking a break for 5 minutes - time is: %s" % dt.now()
+		time.sleep(300) #seconds
+			

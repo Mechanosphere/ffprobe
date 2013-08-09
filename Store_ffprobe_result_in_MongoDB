@@ -1,0 +1,76 @@
+#!/usr/bin/python
+import os, sys, subprocess, shlex, re, fnmatch
+from subprocess import call
+from subprocess import Popen, PIPE
+import datetime
+from datetime import datetime as dt
+import pymongo
+from pymongo import MongoClient 
+import json
+from pprint import pprint
+import time 
+import smtplib
+from email.mime.text import MIMEText
+
+
+# GLOBAL VARIABLES
+#VIDEODROP_DIR="/Users/mathiesj/Desktop/video_drop"
+VIDEODROP_DIR="/mnt/VoigtKampff/DTO/DTO_SourceLib"
+
+
+# GLOBAL DATABASE VARIABLES
+connection = MongoClient("166.77.22.72:27017", slave_okay=True)
+db = connection['video_ingest_db']
+
+today = datetime.date.today() # Get todays date
+ingest_date = today.strftime("%Y%m%d") # get the date into variable 
+print ingest_date
+
+
+
+# GLOBAL FUNCTIONS - PROBE FILE 
+def probe_file():
+  fpath = os.path.join(root, file)
+	try: 
+		p = subprocess.check_output(["ffprobe", "-loglevel", "quiet", "-print_format", "json", "-show_streams", "-show_format", fpath])
+		db = connection['video_ingest_db']
+		info = json.loads(p)
+		print info
+		posts = db.video_ingest_metadata
+		posts.insert(info)
+	except subprocess.CalledProcessError, e:
+		print "Subprocess Error with file: %s" % file # e.output
+		sendErrorMail()
+	except ValueError:
+		print "File: %s has errors" % fpath 
+	return
+
+
+# GLOBAL FUNCTIONS - EMAIL ERROR JIRA
+
+def sendErrorMail():
+	msg = MIMEText("File with errors: %s " % file)
+	msg["From"] = "jemail@eail.com"
+	msg["To"] = "jemail@eail.com"
+	msg["Subject"] = "Video Ingest found file with errors: %s " % file
+	p = Popen(["/usr/sbin/sendmail", "-t"], stdin=PIPE)
+	p.communicate(msg.as_string())
+
+
+# SCRIPT
+while True:
+	time.sleep(1200)
+	if dt.now().hour in range(1, 23):
+	for root, dirs, files in os.walk(VIDEODROP_DIR):
+		for file in files:
+			print "Found file: %s" % file
+			if file.startswith('.'):
+				print "File: %s is not valid" % file
+			elif file.endswith(('.mov', '.mpg', '.mp4', '.wmv', '.mxf')):
+				probe_file()
+				time.sleep(1)	
+			elif not file.endswith(('.mov', '.mpg', '.mp4', '.wmv', '.mxf')):
+				print "This file: %s is not a valid video file" % file
+	elif dt.now().hour in range(23, 1):
+		print "Video Ingest Process taking a break - time is: %s" % dt.now()
+		time.sleep(1200)

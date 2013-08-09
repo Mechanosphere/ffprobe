@@ -1,4 +1,4 @@
-ffprobe
+Ingestion and media analysis tool - ffprobe, python, mongodb
 =======
 
 ffprobe python aspect ratio detect

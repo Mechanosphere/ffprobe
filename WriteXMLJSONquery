@@ -1,0 +1,152 @@
+#!/usr/bin/env python
+# encoding: utf-8
+"""
+python_write_xml_toFile.py
+
+Created by Mathiesen, Jonathan on 2013-03-31.
+Copyright (c) 2013 Mechanosphere. All rights reserved.
+"""
+
+import sys
+import os
+import xml.etree.cElementTree as ET
+import pymongo
+from pymongo import MongoClient
+from bson import Binary, Code
+from bson.json_util import dumps  
+import io, json
+from itertools import groupby
+from bson.objectid import ObjectId
+import datetime
+
+
+# Connecting to the DB
+#connection = MongoClient("166.77.22.72:27017", slave_okay=True)
+#db = connection['video_ingest_db']
+#video_md_collection = db['video_ingest_metadata']
+
+connection = MongoClient("localhost:27017", slave_okay=True)
+db = connection['video_ingest_db']
+video_md_collection_1 = db['video_metadata_DTO']
+video_md_collection_2 = db['video_metadata2']
+total_posts = db.video_metadata2.count()
+print "Total posts: %s " % total_posts # tells you how many entries in the database
+
+  	 
+	
+def find_id_sort():
+	for post in db.video_md_fcsvr.find({"streams.codec_name": "prores"} and {"streams.width": 1920}).sort("_id", 1):
+		try:
+			video_id_timestamp = post['_id'].generation_time # get the timestamp off the Object ID
+			video_id = post['_id'] # get the ObjectId
+			streams_data = post['streams']
+			format_data = post['format']
+			format_name = post['format']['format_name']
+			format_long_name = post['format']['format_long_name']
+			path_filename = post['format']['filename']
+			asset_creation_time = post['format']['tags']['creation_time']
+			asset_duration = post['format']['duration']
+		
+			codec_name_0 = post['streams'][0]['codec_name']
+			codec_name_1 = post['streams'][1]['codec_name']
+			#codec_name_2 = post['streams'][2]['codec_name']
+		
+			codec_type_0 = post['streams'][0]['codec_type']
+			codec_type_1 = post['streams'][1]['codec_type']
+			codec_type_2 = post['streams'][2]['codec_type']
+		
+			frame_rate = post['streams'][0]['avg_frame_rate']
+			video_height = post['streams'][0]['height'] 
+			video_width = post['streams'][0]['width'] 
+		
+			#print "codec_name: %s" % streams_data_codec_name
+			print "format name: %s " % format_name
+			print "Streams data: %s" % streams_data
+			print "format data: %s" % format_data
+			print "Video ID: %s" % video_id
+			print "Creation Time: %s" % video_id_timestamp
+			print "Metadata: %s" % post
+			print "Duration: %s" % asset_duration
+			#time.sleep(10)
+		
+			# CONVERT OUT TO STRING -------------------------------------------------- 
+			id_to_string = str(video_id) # convert the ObjectId to string
+			timestamp_to_string = str(video_id_timestamp) 
+			filename_to_string = str(path_filename)
+			format_name_to_string = str(format_name)
+			format_long_name_to_string = str(format_long_name)
+			asset_creation_time_to_string = (asset_creation_time)
+			asset_duration_to_str = str(asset_duration)
+			#asset_duration_to_string = str(datetime.timedelta(seconds=asset_duration_to_str))
+		
+			codec_name_0_to_str = str(codec_name_0)
+			codec_name_1_to_str = str(codec_name_1)
+			#codec_name_2_to_str = str(codec_name_2)
+		
+			codec_type_0_to_str = str(codec_type_0)
+			codec_type_1_to_str = str(codec_type_1)
+			codec_type_2_to_str = str(codec_type_2)
+		
+			frame_rate_to_str = str(frame_rate)
+			video_height_to_str = str(video_height)
+			video_width_to_str = str(video_width)
+		
+			metadata_file_name = "/Users/mathiesj/Desktop/metadata/" + id_to_string + ".xml" # create the path and filenaming convention of the metadata files
+		
+		
+			# WRITE VALUES TO XML FORMAT --------------------------------------------------
+			root = ET.Element("video_metadata")
+			editorial_metadata = ET.SubElement(root, "editorial_metadata")
+			#streams = ET.SubElement(root, "streams")
+			content_type_field = ET.SubElement(editorial_metadata, "content_type")
+			content_type_field.text = "content type"
+			episode_name_field = ET.SubElement(editorial_metadata, "episode_name")
+			episode_name_field.text = "episode name"
+			episode_no_field = ET.SubElement(editorial_metadata, "episode_no")
+			episode_no_field.text = "episode number"
+			episode_description_field = ET.SubElement(editorial_metadata, "episode_description")
+			episode_description_field.text = "episode description"
+			copyright_field = ET.SubElement(editorial_metadata, "copyright")
+			copyright_field.text = "Viacom Media Networks"
+			
+			technical_metadata = ET.SubElement(root, "technical_metadata")
+
+			asset_field = ET.SubElement(technical_metadata, "asset")
+			asset_field.set("id", id_to_string)
+			asset_field.set("time_stamp", timestamp_to_string)
+			asset_field.set("path_filename", filename_to_string)
+		
+			video_format_field = ET.SubElement(technical_metadata, "video_format")
+			video_format_field.set("video_format_name", format_name_to_string)
+			video_format_field.set("video_format_long_name", format_long_name_to_string)
+			video_format_field.set("asset_creation_time", asset_creation_time_to_string)
+			video_format_field.set("asset_duration_seconds", asset_duration_to_str)
+		
+			stream0_field = ET.SubElement(technical_metadata, "stream_0")
+			stream0_field.set("codec_type", codec_type_0_to_str)
+			stream0_field.set("codec_name", codec_name_0_to_str)
+			stream0_field.set("frame_rate", frame_rate_to_str)
+			stream0_field.set("video_height", video_height_to_str)
+			stream0_field.set("video_width", video_width_to_str)
+			
+			stream1_field = ET.SubElement(technical_metadata, "stream_1")
+			stream1_field.set("codec_type", codec_type_1_to_str)
+			stream1_field.set("codec_name", codec_name_1_to_str)
+		
+			stream2_field = ET.SubElement(technical_metadata, "stream_2")
+			stream2_field.set("codec_type", codec_type_2_to_str)
+			
+			tree = ET.ElementTree(root)
+			tree.write(metadata_file_name)
+		except:
+			print "error with ID: %s" % id_to_string
+			
+
+
+
+find_id_sort()
+
+
+
+
+

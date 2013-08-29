@@ -1,0 +1,74 @@
+#!/usr/bin/python
+
+import os, sys, subprocess, shlex, re, fnmatch
+from subprocess import call 
+import shutil 
+import smtplib
+from email.mime.text import MIMEText
+from subprocess import Popen, PIPE
+from datetime import datetime as dt
+import pymongo
+from pymongo import MongoClient 
+import json
+from pprint import pprint
+import time 
+import datetime 
+import simplejson
+from StringIO import StringIO
+import pprint
+
+# GLOBAL VARIABLES - DIR LOCATIONS 
+videoDrop_dir = "/Users/mathiesj/Desktop/video_drop" # Video Drop Location 
+#video_4x3_interlaced = 
+#video_4x3_progressive
+#video_16x9_interlaced
+#video_16x9_interlaced
+#ERROR_DIR
+
+
+# GLOBAL FUNCTIONS - FFPROBE ANALYSIS ON FRAME LEVEL 
+def probe_file():
+	fpath = os.path.join(root, file)
+	try:
+		p = subprocess.check_output(["ffprobe", "-loglevel", "quiet", "-print_format", "json", "-select_streams", "v", "-show_frames", fpath])
+		#print p
+		info_01 = json.loads(p)
+		pprint.pprint(info_01)
+		#posts = db.video_frame_QC# this is where you specify the collection in MondgoDB
+		#posts.insert(info_01)
+		if info_01['frames'][0]['interlaced_frame'] == 0 and info_01['frames'][0]['height'] > 719:
+			print "The Video %s is progressive and HD" % fpath
+		elif info_01['frames'][0]['interlaced_frame'] == 1 and info_01['frames'][0]['height'] > 719:
+			print "The Video %s is interlaced and HD" % fpath
+		elif info_01['frames'][0]['interlaced_frame'] == 0 and info_01['frames'][0]['height'] > 380:
+			print "The Video %s is Progressive and 4x3" % fpath
+		elif info_01['frames'][0]['interlaced_frame'] == 1 and info_01['frames'][0]['height'] > 380:
+			print "The Video %s is progresive and 4x3" % fpath
+		elif info_01['frames'][0]['interlaced_frame'] == 1 and info_01['frames'][0]['height'] < 380:
+			print "The Video %s is Interlaced and 16x9" % fpath
+		elif info_01['frames'][0]['interlaced_frame'] == 0 and info_01['frames'][0]['height'] < 380:
+			print "The Video %s is Progressive and 16x9" % fpath
+		else:
+			print "The Video %s is fucked" % fpath 
+	except subprocess.CalledProcessError, e:
+		print "Subprocess Error with file: %s" % file # e.output
+		#sendErrorMail()
+	except ValueError:
+		print "File: %s has errors" % fpath 
+	return
+
+
+
+
+# SCRIPT 
+for root, dirs, files in os.walk(videoDrop_dir):
+	for file in files:
+		print "File: %s" % file
+		if file.startswith('.'):
+			print "This file: %s is not valid" % file
+		elif file.endswith(('.mov', '.mp4', '.mpg')):
+			probe_file()
+		elif not file.startswith(('.mov', '.mp4', '.mpg')):
+			print "This file: %s is not a valid video file" % file
+		else:
+			print "No files found in the Video Drop: %s" % videoDrop_dir
